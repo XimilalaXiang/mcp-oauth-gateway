@@ -140,6 +140,29 @@ func (s *sseSession) sendMessage(body []byte) ([]byte, error) {
 	return s.readResponse()
 }
 
+func (s *sseSession) sendNotification(body []byte) (int, error) {
+	s.mu.Lock()
+	msgURL := s.messageURL
+	s.mu.Unlock()
+
+	req, err := http.NewRequest("POST", msgURL, bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.backend.AuthHeader != "" {
+		req.Header.Set("Authorization", s.backend.AuthHeader)
+	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	resp.Body.Close()
+	return resp.StatusCode, nil
+}
+
 func (s *sseSession) readResponse() ([]byte, error) {
 	s.scanMu.Lock()
 	defer s.scanMu.Unlock()
@@ -310,6 +333,7 @@ func handleStreamableHTTPBridge(cfg *Config, jwtMgr *JWTManager) http.HandlerFun
 			return
 		}
 
+		isNotification := rpcReq.ID == nil
 		sessionKey := fmt.Sprintf("%s-%s", backendName, token[:16])
 
 		if rpcReq.Method == "initialize" {
@@ -325,6 +349,12 @@ func handleStreamableHTTPBridge(cfg *Config, jwtMgr *JWTManager) http.HandlerFun
 		if err != nil {
 			log.Printf("[BRIDGE] session create failed for %s: %v", backendName, err)
 			httpError(w, http.StatusBadGateway, "bad_gateway", "failed to connect to backend: "+err.Error())
+			return
+		}
+
+		if isNotification {
+			_, _ = entry.session.sendNotification(body)
+			w.WriteHeader(http.StatusAccepted)
 			return
 		}
 
