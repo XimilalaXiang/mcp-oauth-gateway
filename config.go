@@ -14,9 +14,10 @@ type ServerConfig struct {
 }
 
 type AuthConfig struct {
-	Password  string        `yaml:"password"`
-	JWTSecret string        `yaml:"jwt_secret"`
-	TokenTTL  time.Duration `yaml:"token_ttl"`
+	Password   string `yaml:"password"`
+	JWTSecret  string `yaml:"jwt_secret"`
+	TokenTTLStr string `yaml:"token_ttl"`
+	TokenTTL   time.Duration
 }
 
 type BackendConfig struct {
@@ -45,6 +46,13 @@ func loadConfig(path string) (*Config, error) {
 
 	if cfg.Server.Port == "" {
 		cfg.Server.Port = "8800"
+	}
+	if cfg.Auth.TokenTTLStr != "" {
+		d, err := time.ParseDuration(cfg.Auth.TokenTTLStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid token_ttl: %w", err)
+		}
+		cfg.Auth.TokenTTL = d
 	}
 	if cfg.Auth.TokenTTL == 0 {
 		cfg.Auth.TokenTTL = 24 * time.Hour

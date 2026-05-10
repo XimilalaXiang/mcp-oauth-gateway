@@ -8,6 +8,11 @@ import (
 
 func handleProtectedResourceMetadata(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		setCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		baseURL := strings.TrimRight(cfg.Server.BaseURL, "/")
 		meta := map[string]any{
 			"resource":                baseURL + "/",
@@ -24,6 +29,11 @@ func handleProtectedResourceMetadata(cfg *Config) http.HandlerFunc {
 
 func handleAuthServerMetadata(cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		setCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		baseURL := strings.TrimRight(cfg.Server.BaseURL, "/")
 		meta := map[string]any{
 			"issuer":                                baseURL,
