@@ -1,0 +1,20 @@
+server:
+  port: 8800
+  base_url: https://mcp-gateway.example.com
+
+auth:
+  password: change-me-to-a-strong-password
+  jwt_secret: change-me-to-a-random-32-char-string
+  token_ttl: 24h
+
+backends:
+  blinko:
+    name: Blinko Notes
+    upstream: http://blinko-mcp:8080
+    transport: sse
+    auth_header: "Bearer your-blinko-token"
+  # wallos:
+  #   name: Wallos Subscriptions
+  #   upstream: http://wallos-mcp:8080
+  #   transport: sse
+  #   auth_header: "Bearer your-wallos-token"
