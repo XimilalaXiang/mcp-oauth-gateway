@@ -5,7 +5,7 @@ server:
 auth:
   password: change-me-to-a-strong-password
   jwt_secret: change-me-to-a-random-32-char-string
-  token_ttl: 24h
+  token_ttl: 720h  # 30 days; Claude.ai auto-refreshes via refresh_token
 
 backends:
   blinko:

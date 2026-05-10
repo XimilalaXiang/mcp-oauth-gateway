@@ -29,16 +29,26 @@ type AuthCode struct {
 	Used         bool
 }
 
+type RefreshToken struct {
+	Token    string
+	ClientID string
+	UserID   string
+	Scopes   []string
+	CreatedAt time.Time
+}
+
 type Store struct {
-	mu       sync.RWMutex
-	clients  map[string]*OAuthClient
-	codes    map[string]*AuthCode
+	mu            sync.RWMutex
+	clients       map[string]*OAuthClient
+	codes         map[string]*AuthCode
+	refreshTokens map[string]*RefreshToken
 }
 
 func NewStore() *Store {
 	s := &Store{
-		clients: make(map[string]*OAuthClient),
-		codes:   make(map[string]*AuthCode),
+		clients:       make(map[string]*OAuthClient),
+		codes:         make(map[string]*AuthCode),
+		refreshTokens: make(map[string]*RefreshToken),
 	}
 	go s.cleanup()
 	return s
@@ -80,6 +90,24 @@ func (s *Store) MarkCodeUsed(code string) {
 	}
 }
 
+func (s *Store) SaveRefreshToken(rt *RefreshToken) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshTokens[rt.Token] = rt
+}
+
+func (s *Store) GetRefreshToken(token string) *RefreshToken {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.refreshTokens[token]
+}
+
+func (s *Store) DeleteRefreshToken(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.refreshTokens, token)
+}
+
 func (s *Store) cleanup() {
 	ticker := time.NewTicker(10 * time.Minute)
 	for range ticker.C {
@@ -96,6 +124,7 @@ func (s *Store) cleanup() {
 				delete(s.clients, k)
 			}
 		}
+		// Refresh tokens never expire by default (persist until revoked or server restart)
 		s.mu.Unlock()
 	}
 }

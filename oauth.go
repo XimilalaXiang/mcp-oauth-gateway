@@ -234,57 +234,118 @@ func handleToken(cfg *Config, store *Store, jwtMgr *JWTManager) http.HandlerFunc
 			return
 		}
 		grantType := r.FormValue("grant_type")
-
-		if grantType != "authorization_code" {
-			httpError(w, http.StatusBadRequest, "unsupported_grant_type", "only authorization_code supported")
-			return
-		}
-
-		code := r.FormValue("code")
 		clientID := r.FormValue("client_id")
-		redirectURI := r.FormValue("redirect_uri")
-		codeVerifier := r.FormValue("code_verifier")
 
-		ac := store.GetCode(code)
-		if ac == nil {
-			httpError(w, http.StatusBadRequest, "invalid_grant", "invalid or expired authorization code")
+		switch grantType {
+		case "authorization_code":
+			code := r.FormValue("code")
+			redirectURI := r.FormValue("redirect_uri")
+			codeVerifier := r.FormValue("code_verifier")
+
+			ac := store.GetCode(code)
+			if ac == nil {
+				httpError(w, http.StatusBadRequest, "invalid_grant", "invalid or expired authorization code")
+				return
+			}
+
+			if ac.ClientID != clientID {
+				httpError(w, http.StatusBadRequest, "invalid_grant", "client_id mismatch")
+				return
+			}
+			if ac.RedirectURI != redirectURI {
+				httpError(w, http.StatusBadRequest, "invalid_grant", "redirect_uri mismatch")
+				return
+			}
+
+			if !verifyPKCE(ac.CodeChallenge, ac.CodeChallengeMethod, codeVerifier) {
+				httpError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
+				return
+			}
+
+			store.MarkCodeUsed(code)
+
+			accessToken, err := jwtMgr.Issue(ac.UserID, clientID, ac.Scopes)
+			if err != nil {
+				httpError(w, http.StatusInternalServerError, "server_error", "failed to issue token")
+				return
+			}
+
+			rt := &RefreshToken{
+				Token:    randomString(32),
+				ClientID: clientID,
+				UserID:   ac.UserID,
+				Scopes:   ac.Scopes,
+				CreatedAt: time.Now(),
+			}
+			store.SaveRefreshToken(rt)
+
+			log.Printf("[TOKEN] Issued access + refresh token for client: %s", clientID)
+
+			resp := map[string]any{
+				"access_token":  accessToken,
+				"token_type":    "Bearer",
+				"expires_in":    int(cfg.Auth.TokenTTL.Seconds()),
+				"refresh_token": rt.Token,
+				"scope":         strings.Join(ac.Scopes, " "),
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			json.NewEncoder(w).Encode(resp)
+
+		case "refresh_token":
+			refreshTokenStr := r.FormValue("refresh_token")
+			if refreshTokenStr == "" {
+				httpError(w, http.StatusBadRequest, "invalid_request", "refresh_token required")
+				return
+			}
+
+			rt := store.GetRefreshToken(refreshTokenStr)
+			if rt == nil {
+				httpError(w, http.StatusBadRequest, "invalid_grant", "invalid refresh token")
+				return
+			}
+
+			if clientID != "" && rt.ClientID != clientID {
+				httpError(w, http.StatusBadRequest, "invalid_grant", "client_id mismatch")
+				return
+			}
+
+			accessToken, err := jwtMgr.Issue(rt.UserID, rt.ClientID, rt.Scopes)
+			if err != nil {
+				httpError(w, http.StatusInternalServerError, "server_error", "failed to issue token")
+				return
+			}
+
+			// Rotate refresh token
+			store.DeleteRefreshToken(refreshTokenStr)
+			newRT := &RefreshToken{
+				Token:    randomString(32),
+				ClientID: rt.ClientID,
+				UserID:   rt.UserID,
+				Scopes:   rt.Scopes,
+				CreatedAt: time.Now(),
+			}
+			store.SaveRefreshToken(newRT)
+
+			log.Printf("[TOKEN] Refreshed access token for client: %s", rt.ClientID)
+
+			resp := map[string]any{
+				"access_token":  accessToken,
+				"token_type":    "Bearer",
+				"expires_in":    int(cfg.Auth.TokenTTL.Seconds()),
+				"refresh_token": newRT.Token,
+				"scope":         strings.Join(rt.Scopes, " "),
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			json.NewEncoder(w).Encode(resp)
+
+		default:
+			httpError(w, http.StatusBadRequest, "unsupported_grant_type", "supported: authorization_code, refresh_token")
 			return
 		}
-
-		if ac.ClientID != clientID {
-			httpError(w, http.StatusBadRequest, "invalid_grant", "client_id mismatch")
-			return
-		}
-		if ac.RedirectURI != redirectURI {
-			httpError(w, http.StatusBadRequest, "invalid_grant", "redirect_uri mismatch")
-			return
-		}
-
-		if !verifyPKCE(ac.CodeChallenge, ac.CodeChallengeMethod, codeVerifier) {
-			httpError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
-			return
-		}
-
-		store.MarkCodeUsed(code)
-
-		accessToken, err := jwtMgr.Issue(ac.UserID, clientID, ac.Scopes)
-		if err != nil {
-			httpError(w, http.StatusInternalServerError, "server_error", "failed to issue token")
-			return
-		}
-
-		log.Printf("[TOKEN] Issued access token for client: %s", clientID)
-
-		resp := map[string]any{
-			"access_token": accessToken,
-			"token_type":   "Bearer",
-			"expires_in":   int(cfg.Auth.TokenTTL.Seconds()),
-			"scope":        strings.Join(ac.Scopes, " "),
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		json.NewEncoder(w).Encode(resp)
 	}
 }
 

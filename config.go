@@ -55,7 +55,7 @@ func loadConfig(path string) (*Config, error) {
 		cfg.Auth.TokenTTL = d
 	}
 	if cfg.Auth.TokenTTL == 0 {
-		cfg.Auth.TokenTTL = 24 * time.Hour
+		cfg.Auth.TokenTTL = 30 * 24 * time.Hour // 30 days default
 	}
 
 	if v := os.Getenv("GATEWAY_PORT"); v != "" {

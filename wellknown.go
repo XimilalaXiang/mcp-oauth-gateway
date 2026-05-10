@@ -43,7 +43,7 @@ func handleAuthServerMetadata(cfg *Config) http.HandlerFunc {
 			"scopes_supported":                      []string{"mcp:read", "mcp:write"},
 			"response_types_supported":              []string{"code"},
 			"response_modes_supported":              []string{"query"},
-			"grant_types_supported":                 []string{"authorization_code"},
+			"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 			"token_endpoint_auth_methods_supported": []string{"none"},
 			"code_challenge_methods_supported":      []string{"S256"},
 			"client_id_metadata_document_supported": true,
