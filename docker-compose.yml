@@ -11,3 +11,7 @@ services:
       - GATEWAY_JWT_SECRET=${GATEWAY_JWT_SECRET}
     volumes:
       - ./config.yaml:/etc/mcp-oauth-gateway/config.yaml:ro
+      - gateway-data:/data
+
+volumes:
+  gateway-data:

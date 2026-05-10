@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -17,7 +18,11 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	store := NewStore()
+	dataFile := os.Getenv("GATEWAY_DATA_FILE")
+	if dataFile == "" {
+		dataFile = "/data/gateway-state.json"
+	}
+	store := NewStore(dataFile)
 	jwtMgr := NewJWTManager(cfg.Auth.JWTSecret, strings.TrimRight(cfg.Server.BaseURL, "/"), cfg.Auth.TokenTTL)
 
 	mux := http.NewServeMux()
