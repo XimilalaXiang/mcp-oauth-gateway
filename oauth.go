@@ -143,7 +143,10 @@ func handleAuthorize(cfg *Config, store *Store) http.HandlerFunc {
 		}
 
 		if r.Method == http.MethodPost {
-			r.ParseForm()
+			if err := r.ParseForm(); err != nil {
+				httpError(w, http.StatusBadRequest, "invalid_request", "failed to parse form")
+				return
+			}
 			clientID := r.FormValue("client_id")
 			redirectURI := r.FormValue("redirect_uri")
 			state := r.FormValue("state")
@@ -189,7 +192,11 @@ func handleAuthorize(cfg *Config, store *Store) http.HandlerFunc {
 
 			log.Printf("[AUTH] Issued authorization code for client: %s", clientID)
 
-			redirectURL, _ := url.Parse(redirectURI)
+			redirectURL, err := url.Parse(redirectURI)
+			if err != nil {
+				httpError(w, http.StatusBadRequest, "invalid_request", "invalid redirect_uri")
+				return
+			}
 			q := redirectURL.Query()
 			q.Set("code", code)
 			if state != "" {
@@ -217,7 +224,10 @@ func handleToken(cfg *Config, store *Store, jwtMgr *JWTManager) http.HandlerFunc
 			return
 		}
 
-		r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			httpError(w, http.StatusBadRequest, "invalid_request", "failed to parse form")
+			return
+		}
 		grantType := r.FormValue("grant_type")
 
 		if grantType != "authorization_code" {
@@ -291,7 +301,15 @@ func validRedirectURI(registered []string, uri string) bool {
 		return false
 	}
 
-	if parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1" {
+	host := parsed.Hostname()
+
+	// RFC 8252: allow localhost and 127.0.0.1 with any port (for Claude Code)
+	if host == "localhost" || host == "127.0.0.1" {
+		return true
+	}
+
+	// Allow Claude.ai callback URL
+	if host == "claude.ai" && strings.HasPrefix(parsed.Path, "/api/mcp/") {
 		return true
 	}
 
