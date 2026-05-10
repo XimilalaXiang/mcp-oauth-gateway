@@ -34,7 +34,27 @@ func main() {
 	mux.HandleFunc("/authorize", handleAuthorize(cfg, store))
 	mux.HandleFunc("/token", handleToken(cfg, store, jwtMgr))
 
-	mux.HandleFunc("/mcp/", handleMCPProxy(cfg, jwtMgr))
+	bridgeHandler := handleStreamableHTTPBridge(cfg, jwtMgr)
+	proxyHandler := handleMCPProxy(cfg, jwtMgr)
+	mux.HandleFunc("/mcp/", func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/mcp/"), "/", 2)
+		backendName := ""
+		remainingPath := ""
+		if len(parts) > 0 {
+			backendName = parts[0]
+		}
+		if len(parts) > 1 {
+			remainingPath = parts[1]
+		}
+
+		backend, ok := cfg.Backends[backendName]
+		if ok && backend.Transport == "sse" && remainingPath == "mcp" {
+			bridgeHandler.ServeHTTP(w, r)
+			return
+		}
+
+		proxyHandler.ServeHTTP(w, r)
+	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
