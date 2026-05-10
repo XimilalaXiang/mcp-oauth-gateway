@@ -15,6 +15,7 @@ import (
 
 type sseSession struct {
 	mu         sync.Mutex
+	scanMu     sync.Mutex
 	sessionID  string
 	messageURL string
 	sseResp    *http.Response
@@ -41,6 +42,7 @@ func (s *sseSession) connect() error {
 		return fmt.Errorf("create SSE request: %w", err)
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Connection", "keep-alive")
 	if s.backend.AuthHeader != "" {
 		req.Header.Set("Authorization", s.backend.AuthHeader)
 	}
@@ -63,6 +65,9 @@ func (s *sseSession) connect() error {
 }
 
 func (s *sseSession) readEndpoint() {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+
 	var eventType string
 	for s.scanner.Scan() {
 		line := s.scanner.Text()
@@ -115,22 +120,30 @@ func (s *sseSession) sendMessage(body []byte) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == 202 || resp.StatusCode == 200 {
-		// For SSE backends, the response comes via SSE stream, not the POST response
-		// 202 = accepted, response will come via SSE
-		// Read from SSE stream for the actual response
+	if resp.StatusCode == 202 {
 		return s.readResponse()
 	}
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode == 200 && len(respBody) > 0 {
+		return respBody, nil
+	}
+
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("message failed with %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return respBody, nil
+	return s.readResponse()
 }
 
 func (s *sseSession) readResponse() ([]byte, error) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+
 	var eventType string
 	deadline := time.After(2 * time.Minute)
 
@@ -196,6 +209,34 @@ func handleStreamableHTTPBridge(cfg *Config, jwtMgr *JWTManager) http.HandlerFun
 			sessionsMu.Unlock()
 		}
 	}()
+
+	getOrCreateSession := func(backendName string, backend BackendConfig, sessionKey string) (*sessionEntry, error) {
+		sessionsMu.Lock()
+		entry, exists := sessions[sessionKey]
+		sessionsMu.Unlock()
+
+		if exists {
+			return entry, nil
+		}
+
+		sess := newSSESession(backend)
+		if err := sess.connect(); err != nil {
+			return nil, fmt.Errorf("SSE connect: %w", err)
+		}
+
+		if err := sess.waitReady(10 * time.Second); err != nil {
+			sess.close()
+			return nil, fmt.Errorf("SSE endpoint timeout: %w", err)
+		}
+
+		entry = &sessionEntry{session: sess, createdAt: time.Now()}
+		sessionsMu.Lock()
+		sessions[sessionKey] = entry
+		sessionsMu.Unlock()
+
+		log.Printf("[BRIDGE] New SSE session for %s, message URL: %s", backendName, sess.messageURL)
+		return entry, nil
+	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		setCORS(w)
@@ -280,31 +321,11 @@ func handleStreamableHTTPBridge(cfg *Config, jwtMgr *JWTManager) http.HandlerFun
 			sessionsMu.Unlock()
 		}
 
-		sessionsMu.Lock()
-		entry, exists := sessions[sessionKey]
-		sessionsMu.Unlock()
-
-		if !exists {
-			sess := newSSESession(backend)
-			if err := sess.connect(); err != nil {
-				log.Printf("[BRIDGE] SSE connect failed for %s: %v", backendName, err)
-				httpError(w, http.StatusBadGateway, "bad_gateway", "failed to connect to backend SSE")
-				return
-			}
-
-			if err := sess.waitReady(10 * time.Second); err != nil {
-				sess.close()
-				log.Printf("[BRIDGE] SSE endpoint timeout for %s: %v", backendName, err)
-				httpError(w, http.StatusBadGateway, "bad_gateway", "backend SSE did not provide endpoint")
-				return
-			}
-
-			entry = &sessionEntry{session: sess, createdAt: time.Now()}
-			sessionsMu.Lock()
-			sessions[sessionKey] = entry
-			sessionsMu.Unlock()
-
-			log.Printf("[BRIDGE] New SSE session for %s, message URL: %s", backendName, sess.messageURL)
+		entry, err := getOrCreateSession(backendName, backend, sessionKey)
+		if err != nil {
+			log.Printf("[BRIDGE] session create failed for %s: %v", backendName, err)
+			httpError(w, http.StatusBadGateway, "bad_gateway", "failed to connect to backend: "+err.Error())
+			return
 		}
 
 		respData, err := entry.session.sendMessage(body)
@@ -316,21 +337,11 @@ func handleStreamableHTTPBridge(cfg *Config, jwtMgr *JWTManager) http.HandlerFun
 			delete(sessions, sessionKey)
 			sessionsMu.Unlock()
 
-			sess := newSSESession(backend)
-			if err := sess.connect(); err != nil {
-				httpError(w, http.StatusBadGateway, "bad_gateway", "reconnect failed")
+			entry, err = getOrCreateSession(backendName, backend, sessionKey)
+			if err != nil {
+				httpError(w, http.StatusBadGateway, "bad_gateway", "reconnect failed: "+err.Error())
 				return
 			}
-			if err := sess.waitReady(10 * time.Second); err != nil {
-				sess.close()
-				httpError(w, http.StatusBadGateway, "bad_gateway", "reconnect endpoint timeout")
-				return
-			}
-
-			entry = &sessionEntry{session: sess, createdAt: time.Now()}
-			sessionsMu.Lock()
-			sessions[sessionKey] = entry
-			sessionsMu.Unlock()
 
 			respData, err = entry.session.sendMessage(body)
 			if err != nil {
