@@ -10,6 +10,9 @@ import (
 )
 
 func handleMCPProxy(cfg *Config, jwtMgr *JWTManager) http.HandlerFunc {
+	httpClient := &http.Client{Timeout: 5 * time.Minute}
+	sseClient := &http.Client{Timeout: 0}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		setCORS(w)
 		if r.Method == http.MethodOptions {
@@ -88,12 +91,12 @@ func handleMCPProxy(cfg *Config, jwtMgr *JWTManager) http.HandlerFunc {
 		isSSE := strings.Contains(r.Header.Get("Accept"), "text/event-stream") ||
 			backend.Transport == "sse"
 
-		client := &http.Client{Timeout: 5 * time.Minute}
+		c := httpClient
 		if isSSE {
-			client.Timeout = 0
+			c = sseClient
 		}
 
-		resp, err := client.Do(proxyReq)
+		resp, err := c.Do(proxyReq)
 		if err != nil {
 			log.Printf("[PROXY] upstream error for %s: %v", backendName, err)
 			httpError(w, http.StatusBadGateway, "bad_gateway", "upstream request failed")

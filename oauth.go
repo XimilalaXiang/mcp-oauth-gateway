@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"log"
@@ -81,6 +82,10 @@ func handleRegister(store *Store) http.HandlerFunc {
 func handleAuthorize(cfg *Config, store *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		setCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 
 		if r.Method == http.MethodGet {
 			clientID := r.URL.Query().Get("client_id")
@@ -284,7 +289,7 @@ func handleToken(cfg *Config, store *Store, jwtMgr *JWTManager) http.HandlerFunc
 }
 
 func verifyPKCE(challenge, method, verifier string) bool {
-	if verifier == "" {
+	if verifier == "" || challenge == "" {
 		return false
 	}
 	if method != "S256" {
@@ -292,7 +297,7 @@ func verifyPKCE(challenge, method, verifier string) bool {
 	}
 	h := sha256.Sum256([]byte(verifier))
 	computed := base64.RawURLEncoding.EncodeToString(h[:])
-	return computed == challenge
+	return subtle.ConstantTimeCompare([]byte(computed), []byte(challenge)) == 1
 }
 
 func validRedirectURI(registered []string, uri string) bool {

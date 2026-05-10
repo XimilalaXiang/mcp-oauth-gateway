@@ -15,7 +15,7 @@ func handleProtectedResourceMetadata(cfg *Config) http.HandlerFunc {
 		}
 		baseURL := strings.TrimRight(cfg.Server.BaseURL, "/")
 		meta := map[string]any{
-			"resource":                baseURL + "/",
+			"resource":                baseURL,
 			"authorization_servers":   []string{baseURL},
 			"scopes_supported":       []string{"mcp:read", "mcp:write"},
 			"bearer_methods_supported": []string{"header"},
@@ -43,7 +43,7 @@ func handleAuthServerMetadata(cfg *Config) http.HandlerFunc {
 			"scopes_supported":                      []string{"mcp:read", "mcp:write"},
 			"response_types_supported":              []string{"code"},
 			"response_modes_supported":              []string{"query"},
-			"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+			"grant_types_supported":                 []string{"authorization_code"},
 			"token_endpoint_auth_methods_supported": []string{"none"},
 			"code_challenge_methods_supported":      []string{"S256"},
 			"client_id_metadata_document_supported": true,
