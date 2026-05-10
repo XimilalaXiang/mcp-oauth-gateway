@@ -25,6 +25,7 @@ type BackendConfig struct {
 	Upstream   string `yaml:"upstream"`
 	Transport  string `yaml:"transport"`
 	AuthHeader string `yaml:"auth_header"`
+	PathPrefix string `yaml:"path_prefix"`
 }
 
 type Config struct {

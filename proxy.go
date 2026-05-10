@@ -63,7 +63,12 @@ func handleMCPProxy(cfg *Config, jwtMgr *JWTManager) http.HandlerFunc {
 			remainingPath = "/" + parts[1]
 		}
 
-		upstreamURL := strings.TrimRight(backend.Upstream, "/") + remainingPath
+		var upstreamURL string
+		if backend.PathPrefix != "" {
+			upstreamURL = strings.TrimRight(backend.Upstream, "/") + backend.PathPrefix
+		} else {
+			upstreamURL = strings.TrimRight(backend.Upstream, "/") + remainingPath
+		}
 		if r.URL.RawQuery != "" {
 			upstreamURL += "?" + r.URL.RawQuery
 		}
