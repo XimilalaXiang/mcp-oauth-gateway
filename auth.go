@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/subtle"
 	"html/template"
-	"net/http"
 )
 
 const loginPageHTML = `<!DOCTYPE html>
